@@ -1,28 +1,19 @@
-from pydub import AudioSegment
+import re
+from time import time
 from os import walk
 from pathlib import Path
+from pydub import AudioSegment
 from pydub.utils import mediainfo
-from time import time
-import re
 
 current_path = Path(__file__).parent.resolve()
 
 
 class AudioConverter:
     def __init__(self) -> None:
-        self.file_filter = '*.flac'
+        self.file_filter = 'flac|m4a'
         self.converted_files_dir_name = 'converted'
 
-    def generate_file_tree(self, path, mirror_file_structure = True):
-        """
-        index = 0
-        for path in Path(path).rglob(self.file_filter):
-            index += 1
-            file_path = f"{path.parent.resolve()}\\"
-            print(index, path.name, file_path) 
-        print(f"INFO: found {index} item(s) for {self.file_filter} files")
-        """
-
+    def generate_file_tree(self, path, mirror_file_structure=True):
         root_path_parent = str(Path(path).parent.resolve())
         root_target_folder_name = path[len(root_path_parent)+1:]
         converted_files_dir_abs = f"{root_path_parent}/{root_target_folder_name}_{self.converted_files_dir_name}-{int(time())}"
@@ -37,13 +28,17 @@ class AudioConverter:
 
             if files and len(files) > 0:
                 for file in files:
-                    regex = re.search(r'.*\.flac', str(file))
-                    if regex is None:
-                        print(f"\t INFO: ignoring file {file}")
-                    else:
+                    if self.is_file_type_correct(file):
                         print(f"\t* {file}")
                         self.convert_file_to_wav(
                             Path(f"{root}\\{file}"), converted_files_subdir_abs)
+                    else:
+                        print(f"\t INFO: ignoring file {file}")
+
+    def is_file_type_correct(self, file) -> bool:
+        file_str = str(file)
+        regex = re.findall(f'.*\.({self.file_filter})', file_str)
+        return (len(regex) == 1) and ('\n' not in file_str)
 
     def convert_file_to_wav(self, file_path: Path, target_path, remove_after=False):
         flac_tmp_audio_data = AudioSegment.from_file(
