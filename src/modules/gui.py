@@ -1,5 +1,6 @@
 from PySide6 import QtCore, QtWidgets, QtGui
-from converter import AudioConverter
+from modules.audio_converter import AudioConverter
+from modules.config import config
 
 
 class ConverterPromptWidget(QtWidgets.QWidget):
@@ -11,17 +12,23 @@ class ConverterPromptWidget(QtWidgets.QWidget):
         self.convert_button = QtWidgets.QPushButton("Convert File(s)")
         self.file_button = QtWidgets.QPushButton("Select File(s)")
         self.dir_button = QtWidgets.QPushButton("Select Directory")
-        self.mirror_checkbox = QtWidgets.QCheckBox("Mirror folder structure")
+        self.mirror_checkbox = QtWidgets.QCheckBox("Mirror Folder Structure")
         self.mirror_checkbox.setChecked(True)
         self.dironly_checkbox = QtWidgets.QCheckBox(
             "Only allow directory selection")
         self.dironly_checkbox.setChecked(True)
         # self.text = QtWidgets.QLabel("Hello World", alignment=QtCore.Qt.AlignCenter)
+        self.metadata_naming_checkbox = QtWidgets.QCheckBox(
+            "Improve filename with metada info, if possible")
+        self.metadata_naming_checkbox.setChecked(config['RecreateFileNameFromMetadata'])
+        self.file_format_textbox = QtWidgets.QLineEdit(config['ExportFormat'])
 
         self.layout = QtWidgets.QVBoxLayout(self)
         self.layout.addWidget(self.files_list)
+        self.layout.addWidget(self.metadata_naming_checkbox)
         self.layout.addWidget(self.dironly_checkbox)
         self.layout.addWidget(self.mirror_checkbox)
+        self.layout.addWidget(self.file_format_textbox)
         self.layout.addWidget(self.file_button)
         self.layout.addWidget(self.dir_button)
         self.layout.addWidget(self.convert_button)
@@ -30,6 +37,7 @@ class ConverterPromptWidget(QtWidgets.QWidget):
         self.file_button.clicked.connect(self.get_files)
         self.dir_button.clicked.connect(self.get_dirs)
         self.dironly_checkbox.toggled.connect(self.dir_only_checkbox_changed)
+        self.metadata_naming_checkbox.toggled.connect(self.metadata_naming_checkbox_changed)
 
         self.dir_only_checkbox_changed()
         self.set_selected_items()
@@ -38,10 +46,15 @@ class ConverterPromptWidget(QtWidgets.QWidget):
 
     def convert_files(self):
         selected_item = self.selected_items[0]
-        print(selected_item)
+        self.audio_converter.settings['export_format'] = self.file_format_textbox.text().strip()
         is_mirroring_enabled = self.mirror_checkbox.checkState() == QtCore.Qt.CheckState.Checked
         self.audio_converter.generate_file_tree(
             selected_item, mirror_file_structure=is_mirroring_enabled)
+
+    def metadata_naming_checkbox_changed(self):
+        is_checked = self.metadata_naming_checkbox.checkState() == QtCore.Qt.CheckState.Checked
+        p_val = self.audio_converter.settings['file_name_modifications']['recreate_file_name_from_metadata']
+        self.audio_converter.settings['file_name_modifications']['recreate_file_name_from_metadata'] = not p_val
 
     def dir_only_checkbox_changed(self):
         is_checked = self.dironly_checkbox.checkState() == QtCore.Qt.CheckState.Checked
