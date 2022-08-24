@@ -1,15 +1,10 @@
 import re
-from time import time
 from datetime import datetime
 from os import walk
 from pathlib import Path
 from pydub import AudioSegment
 from pydub.utils import mediainfo
 from modules.config import config
-from mutagen import wave, aiff, File as mutagenFile
-from mutagen.easyid3 import EasyID3
-from mutagen.id3 import ID3, ID3NoHeaderError, TextFrame
-""" import mutagen.id3 """
 
 
 class AudioConverter:
@@ -45,6 +40,7 @@ class AudioConverter:
         summary = {
             "skipped": 0,
             "converted": 0,
+            "errors": 0,
             "total": 0
         }
 
@@ -60,15 +56,20 @@ class AudioConverter:
                     summary["total"] += 1
                     if self.is_file_type_correct(file):
                         self.save_print(f"\t* {file}")
-                        self.convert_file_to_wav(
+                        converted_without_errors = self.convert_file_to_wav(
                             Path(f"{root}\\{file}"), converted_files_subdir_abs)
-                        summary["converted"] += 1
+                        if converted_without_errors:
+                            summary["converted"] += 1
+                        else:
+                            summary["errors"] += 1
                     else:
                         self.save_print(f"\t INFO: ignoring file {file}")
                         summary["skipped"] += 1
-        
-        with open(f'{converted_files_dir_abs}/summary.txt', 'w') as f:
-            f.write(f"---------------SUMMARY----------------\n{summary}\n DATE: {datetime.utcnow()}\n-------------SUMMARY END--------------\n\n{self.output}")
+
+        # out file save
+        with open(f'{converted_files_dir_abs}/summary.txt', mode='w', encoding="utf-8") as f:
+            f.write(
+                f"---------------SUMMARY----------------\n{summary}\n DATE: {datetime.utcnow()}\n-------------SUMMARY END--------------\n\n{self.output}")
         print(f'{converted_files_dir_abs}/summary.txt')
 
     def is_file_type_correct(self, file) -> bool:
@@ -80,50 +81,43 @@ class AudioConverter:
         flac_tmp_audio_data = AudioSegment.from_file(
             file_path, file_path.suffix[1:])
 
-        new_file_name = ""
+        # filename manipulations
         old_file_info = mediainfo(str(file_path)).get('TAG', {})
         file_name_modifications = self.settings['file_name_modifications']
 
-        if file_name_modifications['recreate_file_name_from_metadata'] and (old_file_info['artist'] and old_file_info['title']):
-            new_file_name = f"{old_file_info['artist']} {file_name_modifications['title_separator']} {old_file_info['title']}"
+        if file_name_modifications['recreate_file_name_from_metadata']:
+            try:
+                new_file_name = f"{old_file_info['artist']} {file_name_modifications['title_separator']} {old_file_info['title']}"
+            except KeyError:
+                new_file_name = file_path.name.replace(
+                    file_path.suffix, '').strip()
         else:
             new_file_name = file_path.name.replace(
                 file_path.suffix, '').strip()
 
+        # disallowed windows file character check
+        for c in ['/', '\\', '?', ':', '*', '<', '>', '"', '|']:
+            if c in new_file_name:
+                new_file_name = new_file_name.replace(c, 'X')
+
+        # export
         export_file_format = self.settings['export_format']
         self.save_print(f"\t\t-> {new_file_name}.{export_file_format}")
 
-        complete_file_name = str(Path(f"{target_path}\\{new_file_name}.{export_file_format}").resolve())
-        flac_tmp_audio_data.export(
-            complete_file_name,
-            format=export_file_format,
-            tags=old_file_info
-        )
-        
-        """ if (export_file_format == 'wav'):
-            try:
-                tags = EasyID3(complete_file_name)
-            except ID3NoHeaderError:
-                tags = mutagenFile(complete_file_name, easy=True)
-                tags.add_tags()
-
-            #for key in EasyID3.valid_keys.keys():
-            #    print(key)
-
-            tag_changes = False
-            if old_file_info['title']:
-                tags['title'] = TextFrame(encoding=3, text=[old_file_info['title']])
-                tag_changes = True
-            
-            if old_file_info['artist']:
-                tags['artist'] = TextFrame(encoding=3, text=[old_file_info['artist']])
-                tag_changes = True
-
-            if (tag_changes):
-                tags.save(complete_file_name, v1=2)
-                print(tags) """
-
+        try:
+            complete_file_name = str(
+                Path(f"{target_path}\\{new_file_name}.{export_file_format}").resolve())
+            flac_tmp_audio_data.export(
+                complete_file_name,
+                format=export_file_format,
+                tags=old_file_info
+            )
+        except Exception:
+            self.save_print(f"ERROR: Error while saving file {new_file_name}")
+            return False
 
         if self.settings['remove_converted_files']:
             # remove original file
             file_path.unlink()
+
+        return True
