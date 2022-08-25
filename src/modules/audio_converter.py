@@ -57,7 +57,7 @@ class AudioConverter:
                     if self.is_file_type_correct(file):
                         self.save_print(f"\t* {file}")
                         converted_without_errors = self.convert_file_to_wav(
-                            Path(f"{root}\\{file}"), converted_files_subdir_abs)
+                            Path.joinpath(root, file), converted_files_subdir_abs)
                         if converted_without_errors:
                             summary["converted"] += 1
                         else:
@@ -106,7 +106,7 @@ class AudioConverter:
 
         try:
             complete_file_name = str(
-                Path(f"{target_path}\\{new_file_name}.{export_file_format}").resolve())
+                Path.joinpath(target_path, f"{new_file_name}.{export_file_format}").resolve())
             flac_tmp_audio_data.export(
                 complete_file_name,
                 format=export_file_format,
