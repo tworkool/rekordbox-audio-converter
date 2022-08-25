@@ -1,4 +1,4 @@
-from PySide6 import QtCore, QtWidgets, QtGui
+from PySide6 import QtCore, QtWidgets
 from modules.audio_converter import AudioConverter
 from modules.config import config
 
@@ -89,10 +89,3 @@ class ConverterPromptWidget(QtWidgets.QWidget):
             filenames = dlg.selectedFiles()
             self.set_selected_items(filenames)
             return filenames
-
-            # read data
-            """ 
-            f = open(filenames[0], 'r')
-            with f:
-                data = f.read()
-                print(data) """
