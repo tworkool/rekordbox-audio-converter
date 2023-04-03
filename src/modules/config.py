@@ -38,6 +38,7 @@ def get_config():
         "ConvertedFilesDirName": try_config_get('AUDIOPARSER', 'ConvertedFilesDirName', fallback='converted'),
         "RemoveConvertedFiles": try_config_get('AUDIOPARSER', 'RemoveConvertedFiles', fallback=False),
         "MirrorFileStructure": try_config_get('AUDIOPARSER', 'MirrorFileStructure', fallback=True),
+        "NativeFFMPEG": try_config_get('AUDIOPARSER', 'NativeFFMPEG', fallback=True),
         "TitleSeparator": try_config_get('AUDIOPARSER/FILENAMEMODIFICATIONS', 'TitleSeparator', fallback='-'),
         "CustomRegexReplacement": try_config_get('AUDIOPARSER/FILENAMEMODIFICATIONS', 'CustomRegexReplacement', fallback=''),
         "RecreateFileNameFromMetadata": try_config_get('AUDIOPARSER/FILENAMEMODIFICATIONS', 'RecreateFileNameFromMetadata', fallback=True),
