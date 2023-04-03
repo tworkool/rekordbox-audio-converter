@@ -154,6 +154,12 @@ class AudioConverter:
         complete_file_name = str(Path.joinpath(Path(target_path), f"{new_file_name}.{export_file_format}").resolve())
         # Use FFmpeg to convert the file, copying metadata from the input file
         # https://gist.github.com/tayvano/6e2d456a9897f55025e25035478a3a50
+        # THOSE ARE THE SETTINGS PERFECT FOR REKORDBOX WAV: https://cdn.rekordbox.com/files/20210302175909/rekordbox6.4.2_introduction_de.pdf (p. 23)
+        # -i file_input = input file 0
+        # -map_metadata 0 = copy metadata
+        # -c:a pcm_s24le = use all stream and convert to PCM 24 Bit Little Endian Codec (only one from PCM that works with WAV)
+        # -ar 44100 = 44.1 Hz Frequency
+        # -hide_banner -loglevel error -y = hide ffmpeg info, only output errors, overwrite all existing files without permission
         command = ['ffmpeg', '-i', file_path, '-map_metadata', '0', '-c:a', 'pcm_s24le', '-ar', '44100','-hide_banner', '-loglevel', 'error', '-y', complete_file_name]
         subprocess.call(command)
 
