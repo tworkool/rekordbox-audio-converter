@@ -2,18 +2,23 @@ import re
 from datetime import datetime
 import subprocess
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from pydub import AudioSegment
 from pydub.utils import mediainfo
 from modules.config import config
 
+
 class AudioConverter:
     def __init__(self) -> None:
         self.output = ""
+        # outputs
+        self.allowed_formats = ['aiff', 'wav']
+        self.allowed_quality = ['normal', 'high']
         try:
             self.settings = {
                 "file_filter": config['FileFilter'],
                 "export_format": config['ExportFormat'],
+                "export_quality": config['ExportQuality'],
                 "converted_files_dir_name": config['ConvertedFilesDirName'],
                 "remove_converted_files": config['RemoveConvertedFiles'],
                 "mirror_file_structure": config['MirrorFileStructure'],
@@ -26,6 +31,83 @@ class AudioConverter:
             }
         except Exception:
             print("ERROR: could not read AudioConverter settings from config")
+        
+        self.ffmpeg_type_arguments = {
+            "aiff_normal": {
+                "codec": 'pcm_s16be',     # 16 Bit PCM Big Endian
+                "sampling_rate": '44100', # 44.1 kHz
+                "bit_rate": None,
+                "custom": [],
+            },
+            "aiff_high": {
+                "codec": 'pcm_s24be',     # 24 Bit PCM Big Endian
+                "sampling_rate": '96000', # 96 kHz
+                "bit_rate": None,
+                "custom": [],
+            },
+            "wav_normal": {
+                "codec": 'pcm_s16le',     # 16 Bit PCM Little Endian
+                "sampling_rate": '44100', # 44.1 kHz
+                "bit_rate": None,
+                "custom": [],
+            },
+            "wav_high": {
+                "codec": 'pcm_s24le',     # 24 Bit PCM Little Endian
+                "sampling_rate": '96000', # 96 kHz
+                "bit_rate": None,
+                "custom": [],
+            },
+        }
+
+    # all ffmpeg arguments: https://gist.github.com/tayvano/6e2d456a9897f55025e25035478a3a50
+    def generate_ffmpeg_arguments(self, in_audio: PureWindowsPath, out_audio: PureWindowsPath, in_cover: PureWindowsPath or None = None, quality='normal', verbose=False) -> list:
+        in_format = in_audio.suffix.replace('.', '')
+        out_format = out_audio.suffix.replace('.', '')
+        if out_format not in self.allowed_formats:
+            print(f"ERROR: format type {out_format} not allowed ({self.allowed_formats})")
+        if quality not in self.allowed_quality:
+            print(f"ERROR: quality {quality} not supported ({self.allowed_quality})")
+        
+        # global ffmpeg settings
+        # -hide_banner -loglevel error -y = hide ffmpeg info, only output errors, overwrite all existing files without permission
+        arg_list = ['ffmpeg', '-y']
+        if verbose:
+            arg_list.extend(['-hide_banner', '-loglevel', 'error'])
+        # input stream 0: audio file
+        arg_list.extend(['-i', f'"{in_audio}"'])
+
+        if 'wav' != out_format and in_cover and in_cover.is_file():
+            # input stream 1: image file, album cover
+            arg_list.extend(['-i', f'"{in_cover}"'])
+            # copy codec of stream 1: image file to output
+            # arg_list.extend(['-c:1', 'copy'])
+        
+        # map metadata from in stream 0: in audio file to output
+        arg_list.extend(['-map_metadata', '0'])
+
+        ffmpeg_arg_preset_key = f"{out_format}_{quality}"
+        ffmpeg_arg_preset = self.ffmpeg_type_arguments[ffmpeg_arg_preset_key]
+
+        # audio codec, sampling rate and bit rate
+        # as specified by rekordbox here [p. 23]: https://cdn.rekordbox.com/files/20210302175909/rekordbox6.4.2_introduction_de.pdf
+        if ffmpeg_arg_preset['codec'] is not None:
+            arg_list.extend(['-acodec', ffmpeg_arg_preset['codec']])
+        if ffmpeg_arg_preset['sampling_rate'] is not None:
+            arg_list.extend(['-ar', ffmpeg_arg_preset['sampling_rate']])
+        if ffmpeg_arg_preset['bit_rate'] is not None:
+            arg_list.extend(['-b:a', ffmpeg_arg_preset['bit_rate']])
+
+        # specify ID3 v2 version, Rekordbox uses ID3 v2.4
+        # write ID3 v2.4 tag (1=true)
+        arg_list.extend(['-id3v2_version', '4', '-write_id3v2', '1'])
+        # out file format (leads to constant bitrate)
+        arg_list.extend(['-f', out_format])
+        # output file
+        arg_list.append(f'"{out_audio}"')
+
+        arg_command = " ".join(arg_list)
+        #return arg_list
+        return arg_command
 
     def save_print(self, s):
         self.output += s
@@ -59,9 +141,11 @@ class AudioConverter:
                     if self.is_file_type_correct(file):
                         self.save_print(f"\t* {file}")
                         if (self.settings['native_ffmpeg']):
-                            converted_without_errors = self.convert_file_to_wav_with_ffmpeg(Path.joinpath(abs_root, file), converted_files_subdir_abs)
+                            converted_without_errors = self.convert_file_to_wav_with_ffmpeg(
+                                Path.joinpath(abs_root, file), converted_files_subdir_abs)
                         else:
-                            converted_without_errors = self.convert_file_to_wav(Path.joinpath(abs_root, file), converted_files_subdir_abs)
+                            converted_without_errors = self.convert_file_to_wav_with_pydub(
+                                Path.joinpath(abs_root, file), converted_files_subdir_abs)
 
                         if converted_without_errors:
                             summary["converted"] += 1
@@ -82,28 +166,96 @@ class AudioConverter:
         regex = re.findall(f'.*\.({self.settings["file_filter"]})', file_str)
         return (len(regex) == 1) and ('\n' not in file_str)
 
-    def convert_file_to_wav(self, file_path: Path, target_path):
+    def fix_windows_file_name(self, file_name: str) -> str:
+        # disallowed windows file character check
+        _file_name = file_name
+        for c in ['/', '\\', '?', ':', '*', '<', '>', '"', '|']:
+            if c in file_name:
+                _file_name = file_name.replace(c, 'X')
+        return _file_name
+
+    def improve_file_name_from_metadata(self, file_path: Path, template_format='$ARTIST - $TITLE'):
+        file_info = mediainfo(str(file_path)).get('TAG', {})
+        file_name = template_format
+
+        template_key_value_list = [
+            {
+                'key': '$ARTIST',
+                'value': 'artist',
+            },
+            {
+                'key': '$TITLE',
+                'value': 'title',
+            },
+        ]
+
+        current_replace_key = ''
+        try:
+            for e in template_key_value_list:
+                current_replace_key = e['key']
+                current_replace_value = file_info[e['value']]
+                if current_replace_key in file_name:
+                    file_name = file_name.replace(current_replace_key, current_replace_value)
+            return file_name
+        except KeyError:
+            print(f"ERROR: Could not improve file name from metadata due to missing tag {current_replace_key}")
+            return False
+
+    def convert_file_to_wav_with_ffmpeg(self, file_path: Path, target_path):
+        # filename manipulations
+        if self.settings['file_name_modifications']:
+          modified_file_name = self.improve_file_name_from_metadata(file_path)
+          new_file_name = modified_file_name or file_path.name.replace(file_path.suffix, '').strip()
+        else:
+          new_file_name = file_path.name.replace(file_path.suffix, '').strip()
+        
+        # fix windows file name
+        new_file_name = self.fix_windows_file_name(new_file_name)
+
+        # export
+        export_file_format = self.settings['export_format']
+        self.save_print(f"\t\t-> {new_file_name}.{export_file_format}")
+
+        output_audio = Path.joinpath(Path(target_path), f"{new_file_name}.{export_file_format}").resolve()
+        input_audio = Path(file_path).resolve()
+        input_cover_image = Path.joinpath(Path(target_path), "cover.jpg").resolve()
+        
+        #command = ['ffmpeg', '-i', file_path, '-map_metadata', '0', '-c:a', 'pcm_s24le', '-ar', '44100', '-hide_banner', '-loglevel', 'error', '-y', complete_file_name]
+        command = self.generate_ffmpeg_arguments(
+            input_audio,
+            output_audio,
+            input_cover_image,
+            quality='normal',
+            verbose=True
+        )
+        subprocess.call(command, timeout=200)
+
+        # Check if the output file was created successfully
+        if not input_audio.is_file():
+            print("ERROR: Conversion failed")
+            return False
+
+        if self.settings['remove_converted_files']:
+            # remove original file
+            file_path.unlink()
+
+        return True
+    
+    def convert_file_to_wav_with_pydub(self, file_path: Path, target_path):
         flac_tmp_audio_data = AudioSegment.from_file(
             file_path, file_path.suffix[1:])
 
-        # filename manipulations
         old_file_info = mediainfo(str(file_path)).get('TAG', {})
-        file_name_modifications = self.settings['file_name_modifications']
 
-        if file_name_modifications['recreate_file_name_from_metadata']:
-            try:
-                new_file_name = f"{old_file_info['artist']} {file_name_modifications['title_separator']} {old_file_info['title']}"
-            except KeyError:
-                new_file_name = file_path.name.replace(
-                    file_path.suffix, '').strip()
+        # filename manipulations
+        if self.settings['file_name_modifications']:
+          modified_file_name = self.improve_file_name_from_metadata(file_path)
+          new_file_name = modified_file_name or file_path.name.replace(file_path.suffix, '').strip()
         else:
-            new_file_name = file_path.name.replace(
-                file_path.suffix, '').strip()
-
-        # disallowed windows file character check
-        for c in ['/', '\\', '?', ':', '*', '<', '>', '"', '|']:
-            if c in new_file_name:
-                new_file_name = new_file_name.replace(c, 'X')
+          new_file_name = file_path.name.replace(file_path.suffix, '').strip()
+        
+        # fix windows file name
+        new_file_name = self.fix_windows_file_name(new_file_name)
 
         # export
         export_file_format = self.settings['export_format']
@@ -119,53 +271,6 @@ class AudioConverter:
             )
         except Exception:
             self.save_print(f"ERROR: Error while saving file {new_file_name}")
-            return False
-
-        if self.settings['remove_converted_files']:
-            # remove original file
-            file_path.unlink()
-
-        return True
-
-    def convert_file_to_wav_with_ffmpeg(self, file_path: Path, target_path):
-        # filename manipulations
-        old_file_info = mediainfo(str(file_path)).get('TAG', {})
-        file_name_modifications = self.settings['file_name_modifications']
-
-        if file_name_modifications['recreate_file_name_from_metadata']:
-            try:
-                new_file_name = f"{old_file_info['artist']} {file_name_modifications['title_separator']} {old_file_info['title']}"
-            except KeyError:
-                new_file_name = file_path.name.replace(
-                    file_path.suffix, '').strip()
-        else:
-            new_file_name = file_path.name.replace(
-                file_path.suffix, '').strip()
-
-        # disallowed windows file character check
-        for c in ['/', '\\', '?', ':', '*', '<', '>', '"', '|']:
-            if c in new_file_name:
-                new_file_name = new_file_name.replace(c, 'X')
-
-        # export
-        export_file_format = self.settings['export_format']
-        self.save_print(f"\t\t-> {new_file_name}.{export_file_format}")
-
-        complete_file_name = str(Path.joinpath(Path(target_path), f"{new_file_name}.{export_file_format}").resolve())
-        # Use FFmpeg to convert the file, copying metadata from the input file
-        # https://gist.github.com/tayvano/6e2d456a9897f55025e25035478a3a50
-        # THOSE ARE THE SETTINGS PERFECT FOR REKORDBOX WAV: https://cdn.rekordbox.com/files/20210302175909/rekordbox6.4.2_introduction_de.pdf (p. 23)
-        # -i file_input = input file 0
-        # -map_metadata 0 = copy metadata
-        # -c:a pcm_s24le = use all stream and convert to PCM 24 Bit Little Endian Codec (only one from PCM that works with WAV)
-        # -ar 44100 = 44.1 Hz Frequency
-        # -hide_banner -loglevel error -y = hide ffmpeg info, only output errors, overwrite all existing files without permission
-        command = ['ffmpeg', '-i', file_path, '-map_metadata', '0', '-c:a', 'pcm_s24le', '-ar', '44100','-hide_banner', '-loglevel', 'error', '-y', complete_file_name]
-        subprocess.call(command)
-
-        # Check if the output file was created successfully
-        if not os.path.isfile(complete_file_name):
-            print("ERROR: Conversion failed")
             return False
 
         if self.settings['remove_converted_files']:

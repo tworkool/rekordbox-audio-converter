@@ -35,6 +35,7 @@ def get_config():
     return {
         "FileFilter": try_config_get('AUDIOPARSER', 'FileFilter', fallback='flac|m4a'),
         "ExportFormat": try_config_get('AUDIOPARSER', 'ExportFormat', fallback='wav'),
+        "ExportQuality": try_config_get('AUDIOPARSER', 'ExportQuality', fallback='normal'),
         "ConvertedFilesDirName": try_config_get('AUDIOPARSER', 'ConvertedFilesDirName', fallback='converted'),
         "RemoveConvertedFiles": try_config_get('AUDIOPARSER', 'RemoveConvertedFiles', fallback=False),
         "MirrorFileStructure": try_config_get('AUDIOPARSER', 'MirrorFileStructure', fallback=True),
