@@ -4,11 +4,7 @@ from pathlib import Path
 
 config_parser = configparser.ConfigParser()
 
-if getattr(sys, 'frozen', False):
-    application_path = Path(sys.executable).parent.resolve()
-elif __file__:
-    application_path = Path(__file__).parent.parent.resolve()
-
+application_path: Path = (Path(sys.executable) if getattr(sys, 'frozen', False) else Path(__file__).parent).parent.resolve()
 config_path = Path.joinpath(application_path, 'config.ini')
 print(f'INFO: Looking for config file in directory "{config_path}"')
 config_parser.read(config_path)
