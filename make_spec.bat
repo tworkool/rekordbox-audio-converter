@@ -2,10 +2,10 @@
 echo generating executable spec file...
 
 rem Name of to be generated spec file
-set SPEC_FILE_NAME=AudioToWavConverterrr
+set SPEC_FILE_NAME=AudioToWavConverter
 
 rem Remove '--windowed' if you would like to see console outputs
-pyi-makespec --onefile --windowed --name %SPEC_FILE_NAME% src/main.py
+pyi-makespec --onefile --windowed --icon=build_assets/favicon.ico --name %SPEC_FILE_NAME% src/main.py
 
 rem Add Python statement to copy config.ini to build folder
 ECHO.>>"%SPEC_FILE_NAME%.spec"
