@@ -41,7 +41,7 @@ class AudioConverter:
             },
             "aiff_high": {
                 "codec": 'pcm_s24be',     # 24 Bit PCM Big Endian
-                "sampling_rate": '96000', # 96 kHz
+                "sampling_rate": '48000', # 48 kHz
                 "bit_rate": None,
                 "custom": [],
             },
@@ -53,14 +53,14 @@ class AudioConverter:
             },
             "wav_high": {
                 "codec": 'pcm_s24le',     # 24 Bit PCM Little Endian
-                "sampling_rate": '96000', # 96 kHz
+                "sampling_rate": '48000', # 48 kHz
                 "bit_rate": None,
                 "custom": [],
             },
         }
 
     # all ffmpeg arguments: https://gist.github.com/tayvano/6e2d456a9897f55025e25035478a3a50
-    def generate_ffmpeg_arguments(self, in_audio: PureWindowsPath, out_audio: PureWindowsPath, in_cover: PureWindowsPath or None = None, quality='normal', verbose=False) -> list:
+    def generate_ffmpeg_arguments(self, in_audio: Path, out_audio: Path, in_cover: Path or None = None, quality='normal', verbose=False) -> list:
         in_format = in_audio.suffix.replace('.', '')
         out_format = out_audio.suffix.replace('.', '')
         if out_format not in self.allowed_formats:
@@ -114,52 +114,60 @@ class AudioConverter:
         self.output += "\n"
         print(s)
 
-    def generate_file_tree(self, path, mirror_file_structure=True):
-        root_path_parent = str(Path(path).parent.resolve())
-        root_target_folder_name = path[len(root_path_parent)+1:]
-        converted_files_dir_abs = f"{root_path_parent}/{root_target_folder_name}_{self.settings['converted_files_dir_name']}-{int(datetime.utcnow().timestamp())}"
-        Path(converted_files_dir_abs).mkdir(parents=True, exist_ok=True)
+    def generate_file_tree(self, path, mirror_file_structure=True, is_file=True):
+        root_path_parent = Path(path).parent.resolve()
+        root_target_folder_name = path[len(str(root_path_parent))+1:]
+        if is_file:
+            file = Path(path).name
+            self.save_print(f"\t* {file}")
+            if self.is_file_type_correct(file):
+                converted_without_errors = self.convert_file_to_wav_with_ffmpeg(Path(path), str(root_path_parent))
+            else:
+                self.save_print(f"\t INFO: ignoring file {file}")
+        else:
+            converted_files_dir_abs = f"{root_path_parent}/{root_target_folder_name}_{self.settings['converted_files_dir_name']}-{int(datetime.utcnow().timestamp())}"
+            Path(converted_files_dir_abs).mkdir(parents=True, exist_ok=True)
 
-        summary = {
-            "skipped": 0,
-            "converted": 0,
-            "errors": 0,
-            "total": 0
-        }
+            summary = {
+                "skipped": 0,
+                "converted": 0,
+                "errors": 0,
+                "total": 0,
+            }
 
-        for root, subdirs, files in os.walk(path):
-            abs_root = Path(root)
-            relative_root = root.replace(path, '')
-            converted_files_subdir_abs = f"{converted_files_dir_abs}/{relative_root}"
-            Path(converted_files_subdir_abs).mkdir(parents=True, exist_ok=True)
-            self.save_print(
-                f"INFO: created: {converted_files_subdir_abs}, path includes {len(files)} target files")
+            for root, subdirs, files in os.walk(path):
+                abs_root = Path(root)
+                relative_root = str(root).replace(path, '')
+                converted_files_subdir_abs = f"{converted_files_dir_abs}/{relative_root}"
+                Path(converted_files_subdir_abs).mkdir(parents=True, exist_ok=True)
+                self.save_print(
+                    f"INFO: created: {converted_files_subdir_abs}, path includes {len(files)} target files")
 
-            if files and len(files) > 0:
-                for file in files:
-                    summary["total"] += 1
-                    if self.is_file_type_correct(file):
-                        self.save_print(f"\t* {file}")
-                        if (self.settings['native_ffmpeg']):
-                            converted_without_errors = self.convert_file_to_wav_with_ffmpeg(
-                                Path.joinpath(abs_root, file), converted_files_subdir_abs)
+                if files and len(files) > 0:
+                    for file in files:
+                        summary["total"] += 1
+                        if self.is_file_type_correct(file):
+                            self.save_print(f"\t* {file}")
+                            if (self.settings['native_ffmpeg']):
+                                converted_without_errors = self.convert_file_to_wav_with_ffmpeg(
+                                    Path.joinpath(abs_root, file), converted_files_subdir_abs)
+                            else:
+                                converted_without_errors = self.convert_file_to_wav_with_pydub(
+                                    Path.joinpath(abs_root, file), converted_files_subdir_abs)
+
+                            if converted_without_errors:
+                                summary["converted"] += 1
+                            else:
+                                summary["errors"] += 1
                         else:
-                            converted_without_errors = self.convert_file_to_wav_with_pydub(
-                                Path.joinpath(abs_root, file), converted_files_subdir_abs)
+                            self.save_print(f"\t INFO: ignoring file {file}")
+                            summary["skipped"] += 1
 
-                        if converted_without_errors:
-                            summary["converted"] += 1
-                        else:
-                            summary["errors"] += 1
-                    else:
-                        self.save_print(f"\t INFO: ignoring file {file}")
-                        summary["skipped"] += 1
-
-        # out file save
-        with open(f'{converted_files_dir_abs}/summary.txt', mode='w', encoding="utf-8") as f:
-            f.write(
-                f"---------------SUMMARY----------------\n{summary}\n DATE: {datetime.utcnow()}\n-------------SUMMARY END--------------\n\n{self.output}")
-        print(f'{converted_files_dir_abs}/summary.txt')
+                # out file save
+                with open(f'{converted_files_dir_abs}/summary.txt', mode='w', encoding="utf-8") as f:
+                    f.write(
+                        f"---------------SUMMARY----------------\n{summary}\n DATE: {datetime.utcnow()}\n-------------SUMMARY END--------------\n\n{self.output}")
+                print(f'{converted_files_dir_abs}/summary.txt')
 
     def is_file_type_correct(self, file) -> bool:
         file_str = str(file)
