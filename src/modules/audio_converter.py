@@ -14,24 +14,6 @@ class AudioConverter:
         # outputs
         self.allowed_formats = ['aiff', 'wav']
         self.allowed_quality = ['normal', 'high', 'copy']
-        try:
-            self.settings = {
-                "file_filter": config['FileFilter'],
-                "export_format": config['ExportFormat'],
-                "export_quality": config['ExportQuality'],
-                "converted_files_dir_name": config['ConvertedFilesDirName'],
-                "remove_converted_files": config['RemoveConvertedFiles'],
-                "mirror_file_structure": config['MirrorFileStructure'],
-                "native_ffmpeg": config['NativeFFMPEG'],
-                "file_name_modifications": {
-                    "title_separator": config['TitleSeparator'],
-                    "custom_regex_replacement": config['CustomRegexReplacement'],
-                    "recreate_file_name_from_metadata": config['RecreateFileNameFromMetadata']
-                }
-            }
-        except Exception:
-            print("ERROR: could not read AudioConverter settings from config")
-        
         self.ffmpeg_type_arguments = {
             "aiff_normal": {
                 "codec": 'pcm_s16be',     # 16 Bit PCM Big Endian
@@ -72,7 +54,9 @@ class AudioConverter:
         }
 
     # all ffmpeg arguments: https://gist.github.com/tayvano/6e2d456a9897f55025e25035478a3a50
-    def generate_ffmpeg_arguments(self, in_audio: Path, out_audio: Path, in_cover: Path or None = None, quality='normal', verbose=False) -> list:
+    def generate_ffmpeg_arguments(self, in_audio: Path, out_audio: Path, in_cover: Path or None = None) -> list:
+        verbose = config['VerboseFFMPEGOutputs']
+        quality = config['ExportQuality']
         in_format = in_audio.suffix.replace('.', '')
         out_format = out_audio.suffix.replace('.', '')
         if out_format not in self.allowed_formats:
@@ -144,7 +128,7 @@ class AudioConverter:
             directory = paths[0]
             root_path_parent = Path(directory).parent.resolve()
             root_target_folder_name = str(Path(directory).resolve())[len(str(root_path_parent))+1:]
-            converted_files_dir_abs = f"{root_path_parent}/{root_target_folder_name}_{self.settings['converted_files_dir_name']}-{int(datetime.utcnow().timestamp())}"
+            converted_files_dir_abs = f"{root_path_parent}/{root_target_folder_name}_{config['ConvertedFilesDirName']}-{int(datetime.utcnow().timestamp())}"
             Path(converted_files_dir_abs).mkdir(parents=True, exist_ok=True)
 
             summary = {
@@ -167,12 +151,10 @@ class AudioConverter:
                         summary["total"] += 1
                         if self.is_file_type_correct(file):
                             self.save_print(f"\t* {file}")
-                            if (self.settings['native_ffmpeg']):
-                                converted_without_errors = self.convert_file_to_wav_with_ffmpeg(
-                                    Path.joinpath(abs_root, file), converted_files_subdir_abs)
-                            else:
-                                converted_without_errors = self.convert_file_to_wav_with_pydub(
-                                    Path.joinpath(abs_root, file), converted_files_subdir_abs)
+                            converted_without_errors = self.convert_file_to_wav_with_ffmpeg(
+                                Path.joinpath(abs_root, file),
+                                converted_files_subdir_abs
+                            )
 
                             if converted_without_errors:
                                 summary["converted"] += 1
@@ -190,7 +172,7 @@ class AudioConverter:
 
     def is_file_type_correct(self, file) -> bool:
         file_str = str(file)
-        regex = re.findall(f'.*\.({self.settings["file_filter"]})', file_str)
+        regex = re.findall(f'.*\.({config["FileFilter"]})', file_str)
         return (len(regex) == 1) and ('\n' not in file_str)
 
     def fix_windows_file_name(self, file_name: str) -> str:
@@ -201,9 +183,9 @@ class AudioConverter:
                 _file_name = file_name.replace(c, 'X')
         return _file_name
 
-    def improve_file_name_from_metadata(self, file_path: Path, template_format='$ARTIST - $TITLE'):
+    def improve_file_name_from_metadata(self, file_path: Path):
         file_info = mediainfo(str(file_path)).get('TAG', {})
-        file_name = template_format
+        file_name = config['RecreateFileNameTemplate']
 
         template_key_value_list = [
             {
@@ -230,7 +212,7 @@ class AudioConverter:
 
     def convert_file_to_wav_with_ffmpeg(self, file_path: Path, target_path):
         # filename manipulations
-        if self.settings['file_name_modifications']:
+        if config['RecreateFileNameFromMetadata']:
           modified_file_name = self.improve_file_name_from_metadata(file_path)
           new_file_name = modified_file_name or file_path.name.replace(file_path.suffix, '').strip()
         else:
@@ -240,7 +222,7 @@ class AudioConverter:
         new_file_name = self.fix_windows_file_name(new_file_name)
 
         # export
-        export_file_format = self.settings['export_format']
+        export_file_format = config['ExportFormat']
         self.save_print(f"\t\t-> {new_file_name}.{export_file_format}")
 
         output_audio = Path.joinpath(Path(target_path), f"{new_file_name}.{export_file_format}").resolve()
@@ -251,9 +233,7 @@ class AudioConverter:
         command = self.generate_ffmpeg_arguments(
             input_audio,
             output_audio,
-            input_cover_image,
-            quality='normal',
-            verbose=True
+            input_cover_image
         )
         subprocess.call(command, timeout=200)
 
@@ -262,45 +242,7 @@ class AudioConverter:
             print("ERROR: Conversion failed")
             return False
 
-        if self.settings['remove_converted_files']:
-            # remove original file
-            file_path.unlink()
-
-        return True
-    
-    def convert_file_to_wav_with_pydub(self, file_path: Path, target_path):
-        flac_tmp_audio_data = AudioSegment.from_file(
-            file_path, file_path.suffix[1:])
-
-        old_file_info = mediainfo(str(file_path)).get('TAG', {})
-
-        # filename manipulations
-        if self.settings['file_name_modifications']:
-          modified_file_name = self.improve_file_name_from_metadata(file_path)
-          new_file_name = modified_file_name or file_path.name.replace(file_path.suffix, '').strip()
-        else:
-          new_file_name = file_path.name.replace(file_path.suffix, '').strip()
-        
-        # fix windows file name
-        new_file_name = self.fix_windows_file_name(new_file_name)
-
-        # export
-        export_file_format = self.settings['export_format']
-        self.save_print(f"\t\t-> {new_file_name}.{export_file_format}")
-
-        try:
-            complete_file_name = str(
-                Path.joinpath(Path(target_path), f"{new_file_name}.{export_file_format}").resolve())
-            flac_tmp_audio_data.export(
-                complete_file_name,
-                format=export_file_format,
-                tags=old_file_info
-            )
-        except Exception:
-            self.save_print(f"ERROR: Error while saving file {new_file_name}")
-            return False
-
-        if self.settings['remove_converted_files']:
+        if config['RemoveConvertedFiles']:
             # remove original file
             file_path.unlink()
 

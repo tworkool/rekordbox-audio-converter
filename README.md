@@ -36,6 +36,8 @@ The Python scripts are made to run on windows devices only, but may work on othe
 If you have not installed **ffmpeg** then do so, because it is required. Also don't forget to add it to your PATH environment variables.
 
 ## Setup
+Copy the `config-sample.json` and rename it to `config.json`
+
 ### First Steps
 1. run `install_requirements.bat` to install required python packages
 2. run `make_spec.bat` to create a spec file with pyinstaller

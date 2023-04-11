@@ -10,4 +10,4 @@ pyi-makespec --onefile --icon=build_assets/favicon.ico --name %SPEC_FILE_NAME% s
 rem Add Python statement to copy config.ini to build folder
 ECHO.>>"%SPEC_FILE_NAME%.spec"
 ECHO import shutil>>"%SPEC_FILE_NAME%.spec"
-ECHO shutil.copyfile('src/config.ini', '{0}/config.ini'.format(DISTPATH))>>"%SPEC_FILE_NAME%.spec"
+ECHO shutil.copyfile('src/config.json', '{0}/config.json'.format(DISTPATH))>>"%SPEC_FILE_NAME%.spec"

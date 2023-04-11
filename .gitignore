@@ -1,6 +1,7 @@
 # personal
 test_data*/
 tests/
+config.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

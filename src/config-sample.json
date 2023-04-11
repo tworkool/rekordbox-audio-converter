@@ -1,0 +1,11 @@
+{
+  "FileFilter": "flac|m4a",
+  "ExportFormat": "aiff",
+  "ExportQuality": "normal",
+  "ConvertedFilesDirName": "converted",
+  "RemoveConvertedFiles": false,
+  "MirrorFileStructure": true,
+  "RecreateFileNameFromMetadata": true,
+  "RecreateFileNameTemplate": "$ARTIST - $TITLE",
+  "VerboseFFMPEGOutputs": true
+}
