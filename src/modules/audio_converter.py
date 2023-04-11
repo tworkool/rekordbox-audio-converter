@@ -13,7 +13,7 @@ class AudioConverter:
         self.output = ""
         # outputs
         self.allowed_formats = ['aiff', 'wav']
-        self.allowed_quality = ['normal', 'high']
+        self.allowed_quality = ['normal', 'high', 'copy']
         try:
             self.settings = {
                 "file_filter": config['FileFilter'],
@@ -45,6 +45,12 @@ class AudioConverter:
                 "bit_rate": None,
                 "custom": [],
             },
+            "aiff_copy": {
+                "codec": 'copy',
+                "sampling_rate": 'copy',
+                "bit_rate": 'copy',
+                "custom": [],
+            },
             "wav_normal": {
                 "codec": 'pcm_s16le',     # 16 Bit PCM Little Endian
                 "sampling_rate": '44100', # 44.1 kHz
@@ -55,6 +61,12 @@ class AudioConverter:
                 "codec": 'pcm_s24le',     # 24 Bit PCM Little Endian
                 "sampling_rate": '48000', # 48 kHz
                 "bit_rate": None,
+                "custom": [],
+            },
+            "wav_copy": {
+                "codec": 'copy',
+                "sampling_rate": 'copy',
+                "bit_rate": 'copy',
                 "custom": [],
             },
         }
@@ -114,17 +126,24 @@ class AudioConverter:
         self.output += "\n"
         print(s)
 
-    def generate_file_tree(self, path, mirror_file_structure=True, is_file=True):
-        root_path_parent = Path(path).parent.resolve()
-        root_target_folder_name = path[len(str(root_path_parent))+1:]
-        if is_file:
-            file = Path(path).name
-            self.save_print(f"\t* {file}")
-            if self.is_file_type_correct(file):
-                converted_without_errors = self.convert_file_to_wav_with_ffmpeg(Path(path), str(root_path_parent))
-            else:
-                self.save_print(f"\t INFO: ignoring file {file}")
+    def generate_file_tree(self, paths: list, mirror_file_structure=True, is_files=True):
+        if len(paths) == 0:
+            return
+        
+        if is_files:
+            for _p in paths:
+                root_path_parent = Path(_p).parent.resolve()
+                root_target_folder_name = str(Path(_p).resolve())[len(str(root_path_parent))+1:]
+                file = Path(_p).name
+                self.save_print(f"\t* {file}")
+                if self.is_file_type_correct(file):
+                    converted_without_errors = self.convert_file_to_wav_with_ffmpeg(Path(_p), str(root_path_parent))
+                else:
+                    self.save_print(f"\t INFO: ignoring file {file}")
         else:
+            directory = paths[0]
+            root_path_parent = Path(directory).parent.resolve()
+            root_target_folder_name = str(Path(directory).resolve())[len(str(root_path_parent))+1:]
             converted_files_dir_abs = f"{root_path_parent}/{root_target_folder_name}_{self.settings['converted_files_dir_name']}-{int(datetime.utcnow().timestamp())}"
             Path(converted_files_dir_abs).mkdir(parents=True, exist_ok=True)
 
@@ -135,9 +154,9 @@ class AudioConverter:
                 "total": 0,
             }
 
-            for root, subdirs, files in os.walk(path):
+            for root, subdirs, files in os.walk(directory):
                 abs_root = Path(root)
-                relative_root = str(root).replace(path, '')
+                relative_root = str(root).replace(str(directory), '')
                 converted_files_subdir_abs = f"{converted_files_dir_abs}/{relative_root}"
                 Path(converted_files_subdir_abs).mkdir(parents=True, exist_ok=True)
                 self.save_print(
